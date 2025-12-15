@@ -1,0 +1,11 @@
+tab	criteria
+table_column	criterion	criterion_operation	criterion_value	citations	description
+specimens.dir_n_measurements	DE-SPEC	>=	4.0	This study	Criteria for selection of specimen direction
+specimens.dir_mad_free	DE-SPEC	<=	10.0	This study	Criteria for selection of specimen direction
+specimens.dir_alpha95	DE-SPEC	<=	180.0	This study	Criteria for selection of specimen direction
+samples.dir_alpha95	DE-SAMP	<=	180.0	This study	Criteria for selection of sample direction
+sites.dir_n_samples	DE-SITE	>=	4.0	This study	Criteria for selection of site direction
+sites.dir_n_specimens_lines	DE-SITE	>=	1.0	This study	Criteria for selection of site direction
+sites.dir_k	DE-SITE	>=	50.0	This study	Criteria for selection of site direction
+sites.dir_alpha95	DE-SITE	<=	180.0	This study	Criteria for selection of site direction
+site.dir_polarity	RPOLE	=	r	This study	Criteria for inclusion in reverse mean
