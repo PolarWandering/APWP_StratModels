@@ -3,6 +3,8 @@ from shapely.geometry import Point, LineString
 from geopy.distance import geodesic
 from pyhigh import get_elevation
 import numpy as np
+import pmagpy.ipmag as ipmag
+
 
 def assign_lava_bedding_to_sites(pmag_site_data, bedding_data, dip_dir_col='DIPD_TREND', dip_col='DIP_PLUNGE'):
     '''
