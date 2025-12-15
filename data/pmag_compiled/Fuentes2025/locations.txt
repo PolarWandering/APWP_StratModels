@@ -1,0 +1,6 @@
+tab 	locations
+age	age_high	age_low	age_unit	citations	geologic_classes	lat_n	lat_s	lithologies	location	location_type	lon_e	lon_w
+1077	1090	1068	Ma	This study	Sedimentary	46.3866	46.3866	Sandstone	Bad River	Outcrop	269.3627	269.3627
+1051	1053	1050	Ma	This study	Sedimentary	46.565937	46.565937	Sandstone	Lake Road	Outcrop	269.5833	269.5833
+1063	1070	1050	Ma	This study	Sedimentary	46.499099	46.499099	Sandstone	White River Flowage	Outcrop	269.092	269.092
+1047	1060	1040	Ma	This study	Sedimentary	46.999547	46.999547	Sandstone	Wolf Point	Outcrop	270.9721	270.9721
