@@ -463,14 +463,16 @@ def ultimate_VGP_resample(df, age_model_posterior_df, seds_f_df,
     df_with_pseudo_age = pd.concat([df_no_age_model, df_with_age_model]).reset_index(drop=True)
 
     # now we resample f factors for sedimentary sites
-    sed_sites = df_with_pseudo_age[df_with_pseudo_age['geologic_classes'] == 'Sedimentary']
-    igneous_sites = df_with_pseudo_age[~(df_with_pseudo_age['geologic_classes'] == 'Sedimentary')]
+    sed_sites = df_with_pseudo_age[df_with_pseudo_age['geologic_classes'] == 'Sedimentary'].copy()
+    igneous_sites = df_with_pseudo_age[~(df_with_pseudo_age['geologic_classes'] == 'Sedimentary')].copy()
+    sed_sites[f_label] = pd.to_numeric(sed_sites.get(f_label, np.nan), errors='coerce')
     igneous_sites[f_label] = 1.0
 
     # redraw f factors based on section name
     for section in sed_sites['pole_name'].unique():
         this_section = sed_sites[sed_sites['pole_name'] == section]
-        sed_sites.loc[this_section.index, f_label] = np.random.choice(seds_f_df.loc[section, 'f_factors'][0], size=this_section.shape[0])
+        f_pool = pd.to_numeric(seds_f_df.at[section, 'f_factors'].squeeze(), errors='coerce').dropna().to_numpy(dtype=float)
+        sed_sites.loc[this_section.index, f_label] = np.random.choice(f_pool, size=this_section.shape[0]).astype(float)
 
     df_with_pseudo_age_f = pd.concat([igneous_sites, sed_sites]).reset_index(drop=True)
     
@@ -485,6 +487,8 @@ def ultimate_VGP_resample(df, age_model_posterior_df, seds_f_df,
         site_mean = ipmag.fisher_mean(dec = directions_temp[0], inc = directions_temp[1])        
         
         decs.append(site_mean['dec'])
+
+        # apply f factor unsquishing for sedimentary sites
         incs.append(pmag.unsquish(site_mean['inc'], row[f_label]))
 
         site.append(row[site_label])
