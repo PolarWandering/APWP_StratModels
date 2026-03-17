@@ -82,7 +82,7 @@ end
 
 function plot_age_model(section, mdl; save_figure=false)
     # Plot results (mean and 95% confidence interval for both model and data)
-    hdl = plot([mdl.Age_025CI; reverse(mdl.Age_975CI)],[mdl.Height; reverse(mdl.Height)], fill=(round(Int,minimum(mdl.Height)),0.5,:grey), linecolor=:grey, label="model")
+    hdl = plot([mdl.Age_025CI; reverse(mdl.Age_975CI)],[mdl.Height; reverse(mdl.Height)], fill=(round(Int,minimum(mdl.Height)),0.6,:grey), linecolor=:grey, label="model")
     plot!(hdl, mdl.Age, mdl.Height, linecolor=:grey, label="", fg_color_legend=:white) # Center line
     t = section.Age_Sidedness .== 0 # Two-sided constraints (plot in black)
     any(t) && plot!(hdl, section.Age[t], section.Height[t], xerror=2*section.Age_sigma[t], label="two-sided age", seriestype=:scatter, color=:black)
