@@ -218,6 +218,7 @@ def get_vgps_sampling_from_direction(df, study_label= 'pole_name',
                                      slat_label='lat', slon_label='lon', 
                                      n_label='dir_n_samples', 
                                      dec_label='dir_dec', inc_label='dir_inc', k_label='dir_k',
+                                     f_label='dir_f', f_sigma_label='dir_f_sigma',
                                      mean_age_lab='age', min_age_lab='age_low', max_age_lab='age_high', 
                                      age_uncertainty_label='age_uncertainty', polarity_label='dir_polarity'):
     
@@ -253,8 +254,8 @@ def get_vgps_sampling_from_direction(df, study_label= 'pole_name',
         # in case the record is sedimentary (Freda or Nonesuch) each sample is a site
         if row['geologic_classes'] == 'Sedimentary':
             # instead of resampling the site direction with a madeup kappa, we consider the uncertainty in f factor to resample the inclination-corrected site directions
-            f_nominal = row['f_nominal']
-            f_sigma = row['f_sigma']
+            f_nominal = row[f_label]
+            f_sigma = row[f_sigma_label]
             resample_f = np.random.normal(f_nominal, f_sigma)
             decs.append(row[dec_label])
             incs.append(pmag.unsquish(row[inc_label], resample_f))

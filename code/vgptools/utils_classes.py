@@ -26,7 +26,7 @@ class quantiles:
 class PC:
     
     '''
-    Class to calculate Principal Componenents as a function of time from a time dependant ensemble of directions
+    Class to calculate Principal Components as a function of time from a time dependant ensemble of directions
     '''
     def __init__(self, df, xlabel, LatLabel, LonLabel):
         
@@ -37,7 +37,7 @@ class PC:
         self.LonLabel=LonLabel
         self.groupby=df.groupby(xlabel)
         
-    def PC(self, quantile): #This functions generates an array for each coordinates of the time-varying Principal Componente plus its circular empirical error
+    def PC(self, quantile): #This functions generates an array for each coordinates of the time-varying Principal Component plus its circular empirical error
         '''
         Calculates the Prin. Comp. of the time varying ensemble of mean poles
         Then, given a quantile, it calculates the $\Theta_quantile$ metric, which is the maximum distance at a given confidence (circular)
@@ -69,7 +69,7 @@ class PC:
     
     def Lat_Lon_bounds(self, quantile): 
         '''
-        Given a quantile, this function first discards the (100 - quantile) percent of most distanct vectors
+        Given a quantile, this function first discards the (100 - quantile) percent of most distant vectors
         Returns a list with maximum and minimum latitudes and longitudes
         '''
         max_lat, min_lat, max_lon, min_lon = [], [], [], []
@@ -82,12 +82,24 @@ class PC:
             
             gcds = np.array([GCD_cartesian(array[i],PrinComp) for i,_ in enumerate(array)]) # calculate the distance from each direction to the principal component                                    
             
-            # lats = np.array([i[self.LatLabel] for _,i in df_age.iterrows()])
-            lats = df_age[self.LatLabel].values
-            # lons = np.array([i[self.LonLabel] for _,i in df_age.iterrows()])  
-            lons = df_age[self.LonLabel].values
-            array = np.column_stack([lats, lons, gcds])  
-            array_masked = array[array[:,2] <= np.percentile(array[:,2], quantile) , :] # discards quantile% of the most distanct veectors to the mean
+            # Coerce to numeric and drop non-finite rows before percentile operations.
+            lats = pd.to_numeric(df_age[self.LatLabel], errors='coerce').to_numpy(dtype=float)
+            lons = pd.to_numeric(df_age[self.LonLabel], errors='coerce').to_numpy(dtype=float)
+            gcds = pd.to_numeric(pd.Series(gcds), errors='coerce').to_numpy(dtype=float)
+
+            array = np.column_stack([lats, lons, gcds])
+            finite_mask = np.isfinite(array).all(axis=1)
+            array = array[finite_mask, :]
+
+            if array.shape[0] == 0:
+                max_lat.append(np.nan)
+                min_lat.append(np.nan)
+                max_lon.append(np.nan)
+                min_lon.append(np.nan)
+                continue
+
+            gcd_quantile = np.percentile(array[:,2], quantile)
+            array_masked = array[array[:,2] <= gcd_quantile, :] # discards quantile% of the most distant vectors to the mean
             try:
                 max_lat.append(array_masked[:,0].max())
                 min_lat.append(array_masked[:,0].min())
