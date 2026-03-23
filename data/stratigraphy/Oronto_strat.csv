@@ -1,4 +1,4 @@
-﻿layer,Thickness,Lithology,Type
-3,4000,Sandstone,Exposure
-2,300,Siltstone,BWB
-1,750,Conglomerate,FWWB
+layer,Thickness,Lithology,Type,Formation
+3,4000,Sandstone,Exposure,Freda
+2,300,Siltstone,BWB,Nonesuch
+1,750,Conglomerate,FWWB,Copper Harbor
