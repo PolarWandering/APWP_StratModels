@@ -9,19 +9,24 @@ class quantiles:
     note: input fro longitudes should live in [-180,180]
     '''
     
-    def __init__(self, df, xlabel, ylabel):        
-        self.X = np.sort(df[xlabel].unique().transpose())        
-        self.Y = df.groupby(xlabel)[ylabel]
-        self.q025 = self.Y.quantile(.025).to_numpy()
-        self.q5 = self.Y.quantile(.05).to_numpy()
-        self.q16 = self.Y.quantile(.16).to_numpy()
-        self.q25 = self.Y.quantile(.25).to_numpy()
-        self.q50 = self.Y.quantile(.50).to_numpy()
-        self.q75 = self.Y.quantile(.75).to_numpy()
-        self.q84 = self.Y.quantile(.84).to_numpy()
-        self.q95 = self.Y.quantile(.95).to_numpy()
-        self.q975 = self.Y.quantile(.975).to_numpy()
-        self.mean = self.Y.mean().to_numpy()
+    def __init__(self, df, xlabel, ylabel):      
+        df_clean = df[[xlabel, ylabel]].dropna()
+        grouped = df_clean.groupby(xlabel)[ylabel]
+
+        q = grouped.quantile([0.025, 0.05, 0.16, 0.25, 0.5, 0.75, 0.84, 0.95, 0.975]).unstack()
+        mean = grouped.mean()
+
+        self.X = q.index.to_numpy()
+        self.q025 = q[0.025].to_numpy()
+        self.q5   = q[0.05].to_numpy()
+        self.q16  = q[0.16].to_numpy()
+        self.q25  = q[0.25].to_numpy()
+        self.q50  = q[0.5].to_numpy()
+        self.q75  = q[0.75].to_numpy()
+        self.q84  = q[0.84].to_numpy()
+        self.q95  = q[0.95].to_numpy()
+        self.q975 = q[0.975].to_numpy()
+        self.mean = mean.to_numpy()
     
 class PC:
     
