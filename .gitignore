@@ -2,3 +2,5 @@
 _build
 .DS_Store
 *.pyc
+*.csv
+*.pdf
