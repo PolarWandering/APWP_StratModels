@@ -1,3 +1,5 @@
+from collections.abc import Iterable, Sequence
+
 import numpy as np
 import pandas as pd
 from pmagpy import pmag, ipmag
@@ -12,6 +14,173 @@ from shapely.geometry import Polygon
 from vgptools.utils import spherical2cartesian, shape, eigen_decomposition, cartesian2spherical, GCD_cartesian, get_angle, PD
 
 from joblib import Parallel, delayed
+
+
+def circular_mean(longitudes: Iterable[float]) -> float:
+    """Return the circular mean of longitudes in degrees on ``[0, 360)``."""
+
+    lon_rad = np.deg2rad(np.asarray(longitudes, dtype=float))
+    mean_lon = np.arctan2(np.nanmean(np.sin(lon_rad)), np.nanmean(np.cos(lon_rad)))
+    return float(np.rad2deg(mean_lon) % 360.0)
+
+
+def align_longitudes(longitudes: Iterable[float], center: float | None = None) -> np.ndarray:
+    """Unwrap longitudes onto the 360-degree branch centered on ``center``."""
+
+    lon = np.asarray(longitudes, dtype=float)
+    if center is None:
+        center = circular_mean(lon)
+    return center + ((lon - center + 180.0) % 360.0 - 180.0)
+
+
+def cartesian_mean_path(
+    paths: pd.DataFrame,
+    age_col: str = "age",
+    longitude_col: str = "plon",
+    latitude_col: str = "plat",
+) -> pd.DataFrame:
+    """Summarize an ensemble of paleopoles at each age on the unit sphere."""
+
+    rows: list[dict[str, float]] = []
+    for age, group in paths.groupby(age_col):
+        xyz = np.array(
+            [
+                spherical2cartesian(
+                    [np.radians(row[latitude_col]), np.radians(row[longitude_col])]
+                )
+                for _, row in group.iterrows()
+            ]
+        )
+        mean_xyz = xyz.mean(axis=0)
+        mean_xyz /= np.linalg.norm(mean_xyz)
+        latitude = np.rad2deg(np.arcsin(mean_xyz[2]))
+        longitude = np.rad2deg(np.arctan2(mean_xyz[1], mean_xyz[0])) % 360.0
+        aligned_lon = align_longitudes(group[longitude_col].to_numpy(), longitude)
+        rows.append(
+            {
+                "age": float(age),
+                "plon": longitude,
+                "plat": latitude,
+                "plon_q025": np.nanquantile(aligned_lon, 0.025),
+                "plon_q50": np.nanquantile(aligned_lon, 0.5),
+                "plon_q975": np.nanquantile(aligned_lon, 0.975),
+                "plat_q025": np.nanquantile(group[latitude_col], 0.025),
+                "plat_q50": np.nanquantile(group[latitude_col], 0.5),
+                "plat_q975": np.nanquantile(group[latitude_col], 0.975),
+            }
+        )
+    return pd.DataFrame(rows).sort_values("age").reset_index(drop=True)
+
+
+def summarize_quantiles(
+    values: pd.DataFrame,
+    age_col: str = "age",
+    value_col: str = "APW_rate",
+) -> pd.DataFrame:
+    """Calculate median and empirical 95 percent limits by age."""
+
+    return (
+        values.groupby(age_col)[value_col]
+        .quantile([0.025, 0.5, 0.975])
+        .unstack()
+        .rename(columns={0.025: "q025", 0.5: "q50", 0.975: "q975"})
+        .reset_index()
+        .rename(columns={age_col: "age"})
+        .sort_values("age")
+        .reset_index(drop=True)
+    )
+
+
+def calculate_coherent_path_rates(
+    paths: pd.DataFrame,
+    path_col: str = "run",
+    age_col: str = "age",
+    longitude_col: str = "plon",
+    latitude_col: str = "plat",
+    output_col: str = "APW_rate",
+) -> pd.DataFrame:
+    """Calculate APW rates while preserving each sampled path trajectory.
+
+    Adjacent poles are always taken from the same bootstrap or posterior
+    realization. This is the rate estimator used for the manuscript figures.
+    """
+
+    frames: list[pd.DataFrame] = []
+    for _, group in paths.sort_values([path_col, age_col]).groupby(path_col):
+        group = group.copy()
+        vectors = [
+            spherical2cartesian(
+                [np.radians(row[latitude_col]), np.radians(row[longitude_col])]
+            )
+            for _, row in group.iterrows()
+        ]
+        distances = [np.nan]
+        for index in range(1, len(vectors)):
+            distances.append(np.degrees(GCD_cartesian(vectors[index - 1], vectors[index])))
+        group[output_col] = np.asarray(distances) / group[age_col].diff().to_numpy()
+        frames.append(group)
+    return pd.concat(frames, ignore_index=True)
+
+
+def gallo_effective_age_resample(
+    ensemble: pd.DataFrame,
+    ages: Sequence[float] | np.ndarray,
+    n_paths: int,
+    random_seed: int | None = None,
+    effective_age_col: str = "effective_age",
+    longitude_col: str = "plon",
+    latitude_col: str = "plat",
+) -> pd.DataFrame:
+    """Reproduce the Gallo et al. (2023) pooled effective-age rate estimator.
+
+    For every requested rounded effective age, one pole is sampled from all
+    ensemble rows assigned to that age. Sampling is independent at neighboring
+    ages, so synthetic paths generally combine poles from different original
+    bootstrap runs.
+    """
+
+    requested_ages = np.asarray(ages, dtype=float)
+    if n_paths <= 0:
+        raise ValueError("n_paths must be positive")
+    if requested_ages.size < 2:
+        raise ValueError("At least two effective ages are required")
+    if np.any(np.diff(requested_ages) <= 0):
+        raise ValueError("Effective ages must be unique and strictly increasing")
+
+    pools: dict[float, pd.DataFrame] = {}
+    for age in requested_ages:
+        pool = ensemble.loc[np.isclose(ensemble[effective_age_col], age)].reset_index(drop=True)
+        if pool.empty:
+            raise ValueError(f"No ensemble rows have {effective_age_col}={age:g}")
+        pools[float(age)] = pool
+
+    rng = np.random.default_rng(random_seed)
+    frames: list[pd.DataFrame] = []
+    for synthetic_run in range(n_paths):
+        rows = []
+        for age in requested_ages:
+            pool = pools[float(age)]
+            rows.append(pool.iloc[int(rng.integers(len(pool)))].copy())
+        path = pd.DataFrame(rows).reset_index(drop=True)
+        if "run" in path:
+            path = path.rename(columns={"run": "source_run"})
+        path[effective_age_col] = requested_ages
+        path["run"] = synthetic_run
+
+        vectors = [
+            spherical2cartesian(
+                [np.radians(row[latitude_col]), np.radians(row[longitude_col])]
+            )
+            for _, row in path.iterrows()
+        ]
+        distances = [np.nan]
+        for index in range(1, len(vectors)):
+            distances.append(np.degrees(GCD_cartesian(vectors[index - 1], vectors[index])))
+        path["GCD"] = distances
+        path["APW_rate"] = path["GCD"] / path[effective_age_col].diff()
+        frames.append(path)
+
+    return pd.concat(frames, ignore_index=True)
 
 
 def running_mean_APWP(data, plon_label = 'plon', plat_label='plat', age_label = 'age',

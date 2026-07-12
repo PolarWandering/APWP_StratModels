@@ -1,4 +1,7 @@
 import os
+from collections.abc import Sequence
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 from pmagpy import pmag, ipmag
@@ -11,6 +14,9 @@ import cartopy.feature as cfeature
 # from cartopy.io.img_tiles import StamenTerrain
 import cartopy.io.img_tiles as cimgt
 import seaborn as sns
+
+D2R = np.pi / 180.0
+R2D = 180.0 / np.pi
 
 def get_files_in_directory(path): 
     """
@@ -592,4 +598,141 @@ def shape(ArrayXYZ):
     K = np.log(eigen_values[0]/eigen_values[1])/np.log(eigen_values[1]/eigen_values[2]) #Collinearity
     M = np.log(eigen_values[0]/eigen_values[2]) #Coplanarity
     return [O, P, K, M] 
+
+
+def rotation_matrix(alpha: float, beta: float, gamma: float) -> np.ndarray:
+    """Construct a z-y-z Euler rotation matrix from radian angles."""
+
+    rot_alpha = np.array(
+        [[np.cos(alpha), -np.sin(alpha), 0.0], [np.sin(alpha), np.cos(alpha), 0.0], [0.0, 0.0, 1.0]]
+    )
+    rot_beta = np.array(
+        [[np.cos(beta), 0.0, np.sin(beta)], [0.0, 1.0, 0.0], [-np.sin(beta), 0.0, np.cos(beta)]]
+    )
+    rot_gamma = np.array(
+        [[np.cos(gamma), -np.sin(gamma), 0.0], [np.sin(gamma), np.cos(gamma), 0.0], [0.0, 0.0, 1.0]]
+    )
+    return rot_gamma @ rot_beta @ rot_alpha
+
+
+def spherical_to_cartesian(longitude: float, latitude: float) -> np.ndarray:
+    """Convert longitude and latitude in degrees to a Cartesian unit vector."""
+
+    colatitude = 90.0 - latitude
+    return np.array(
+        [
+            np.sin(colatitude * D2R) * np.cos(longitude * D2R),
+            np.sin(colatitude * D2R) * np.sin(longitude * D2R),
+            np.cos(colatitude * D2R),
+        ]
+    )
+
+
+def cartesian_to_spherical(vector: np.ndarray) -> tuple[float, float]:
+    """Convert a Cartesian vector to longitude and latitude in degrees."""
+
+    vector = np.asarray(vector, dtype=float)
+    vector /= np.linalg.norm(vector)
+    longitude = np.arctan2(vector[1], vector[0]) * R2D
+    latitude = 90.0 - np.arccos(vector[2]) * R2D
+    return float(longitude % 360.0), float(latitude)
+
+
+def rotate_about_euler_pole(
+    pole_vector: np.ndarray,
+    euler_longitude: float,
+    euler_latitude: float,
+    angle: float,
+) -> np.ndarray:
+    """Rotate a paleopole vector about an Euler pole by an angle in degrees."""
+
+    euler_vector = spherical_to_cartesian(euler_longitude, euler_latitude)
+    normalized_lon, normalized_lat = cartesian_to_spherical(euler_vector)
+    colatitude = 90.0 - normalized_lat
+    first = rotation_matrix(-normalized_lon * D2R, -colatitude * D2R, angle * D2R)
+    second = rotation_matrix(0.0, colatitude * D2R, normalized_lon * D2R)
+    return second @ (first @ pole_vector)
+
+
+def evaluate_two_euler_position(parameters: pd.Series, age: float) -> tuple[float, float]:
+    """Evaluate one two-stage Euler posterior sample at a requested age."""
+
+    pole = spherical_to_cartesian(parameters.start_lon, parameters.start_lat)
+    if age > parameters.switchpoint:
+        pole = rotate_about_euler_pole(
+            pole,
+            parameters.euler1_lon,
+            parameters.euler1_lat,
+            parameters.rate_1 * (parameters.start_pole_age - age),
+        )
+    else:
+        pole = rotate_about_euler_pole(
+            pole,
+            parameters.euler1_lon,
+            parameters.euler1_lat,
+            parameters.rate_1 * (parameters.start_pole_age - parameters.switchpoint),
+        )
+        pole = rotate_about_euler_pole(
+            pole,
+            parameters.euler2_lon,
+            parameters.euler2_lat,
+            parameters.rate_2 * (parameters.switchpoint - age),
+        )
+    return cartesian_to_spherical(pole)
+
+
+def load_two_euler_npz_paths(
+    chain_paths: Sequence[str | Path],
+    ages: Sequence[float] | np.ndarray,
+    thin: int = 100,
+) -> pd.DataFrame:
+    """Evaluate archived two-Euler Bayesian PEP chains as paleopole paths."""
+
+    if thin <= 0:
+        raise ValueError("thin must be positive")
+    requested_ages = np.asarray(ages, dtype=float)
+    rows: list[dict[str, float | int]] = []
+    sample_id = 0
+    for chain_path in sorted(Path(path) for path in chain_paths):
+        with np.load(chain_path) as samples:
+            take = np.arange(0, len(samples["rate_1"]), thin)
+            trace = pd.DataFrame(
+                {
+                    "euler1_lon": samples["euler_1"][take, 0],
+                    "euler1_lat": samples["euler_1"][take, 1],
+                    "rate_1": samples["rate_1"][take],
+                    "euler2_lon": samples["euler_2"][take, 0],
+                    "euler2_lat": samples["euler_2"][take, 1],
+                    "rate_2": samples["rate_2"][take],
+                    "start_pole_age": samples["start_pole_age"][take],
+                    "start_lon": samples["start_pole"][take, 0],
+                    "start_lat": samples["start_pole"][take, 1],
+                    "switchpoint": samples["switchpoint"][take],
+                }
+            )
+        for _, parameters in trace.iterrows():
+            previous_vector = None
+            previous_age = None
+            for age in requested_ages:
+                longitude, latitude = evaluate_two_euler_position(parameters, age)
+                current_vector = spherical2cartesian(
+                    [np.radians(latitude), np.radians(longitude)]
+                )
+                rate = np.nan
+                if previous_vector is not None:
+                    distance = np.degrees(GCD_cartesian(previous_vector, current_vector))
+                    rate = distance / (age - previous_age)
+                rows.append(
+                    {
+                        "sample": sample_id,
+                        "age": age,
+                        "plon": longitude,
+                        "plat": latitude,
+                        "APW_rate": rate,
+                    }
+                )
+                previous_vector = current_vector
+                previous_age = age
+            sample_id += 1
+    return pd.DataFrame(rows)
 
